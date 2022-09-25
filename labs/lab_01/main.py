@@ -1,9 +1,46 @@
-import sys
+import gc
 import string
-import threading
 import random
 from time import time, thread_time, process_time
-import memory_profiler
+import psutil
+from functools import lru_cache
+import numpy as np
+import streamlit
+import datetime
+
+CACHE_SIZE = 0
+
+class DummyProfiler:
+    def trace(self):
+        pass
+class MemoryTracker:
+    def __init__(self):
+        self.usage = []
+        self.started = 0
+        self.ended = 0
+        self.process = psutil.Process()
+        self.last_collected = datetime.time()
+
+    def start(self):
+        gc.collect()
+        mem_usage = self.process.memory_info().rss / (1024 * 1024)
+        self.started = mem_usage
+
+    def trace(self):
+        mem_usage = self.process.memory_info().rss / (1024 * 1024)
+        self.usage.append(mem_usage)
+
+    def end(self) -> float:
+        gc.collect()
+        mem_usage = self.process.memory_info().rss / (1024 * 1024)
+        self.ended = mem_usage
+        self.started = min(self.usage)
+        mean = np.mean(self.usage)
+        return {
+            'started': self.started, 'ended': self.ended, 'mean': mean,
+            'mean_relative': mean - self.started,
+            'array': self.usage
+        }
 
 
 """
@@ -39,7 +76,9 @@ def create_matrix(n, m):
     Функция для вычисления расстояния Левенштейна,
     рекурсивно.
 """
-def levenshtein_recursive(str1, str2, out_put = False):
+@lru_cache(maxsize=CACHE_SIZE)
+def levenshtein_recursive(str1, str2, profiler=DummyProfiler()):
+    profiler.trace()
     n = len(str1)
     m = len(str2)
 
@@ -50,10 +89,10 @@ def levenshtein_recursive(str1, str2, out_put = False):
     if str1[-1] != str2[-1]:
         flag = 1
 
-    min_lev_rec = min(levenshtein_recursive(str1[:-1], str2) + 1,
-                      levenshtein_recursive(str1, str2[:-1]) + 1,
-                      levenshtein_recursive(str1[:-1], str2[:-1]) + flag)
-
+    min_lev_rec = min(levenshtein_recursive(str1[:-1], str2, profiler) + 1,
+                      levenshtein_recursive(str1, str2[:-1], profiler) + 1,
+                      levenshtein_recursive(str1[:-1], str2[:-1], profiler) + flag)
+    profiler.trace()
     return min_lev_rec
 
 
@@ -61,7 +100,8 @@ def levenshtein_recursive(str1, str2, out_put = False):
     Функция для вычисления расстояния Левенштейна,
     матрично.
 """
-def levenshtein_matrix(str1, str2, out_put = True):
+def levenshtein_matrix(str1, str2, profiler=DummyProfiler()):
+    profiler.trace()
     n = len(str1)
     m = len(str2)
 
@@ -79,24 +119,22 @@ def levenshtein_matrix(str1, str2, out_put = True):
 
             matrix[i][j] = min(add, delete, change)
 
-    if out_put:
-        print("Расстояние, вычисленное с помощью матрицы Левенштейна: ")
-        print_matrix(str1, str2, matrix)
-        print("Расстояние равно ", matrix[n][m])
-
+    profiler.trace()
     return matrix[n][m]
 
 
 """
     Функция для вычисления расстояния Левенштейна,
     матрица заполянется рекурсивно.
-    ПОДХОДИТ ЛИ КАК РЕКУРСИЯ С КЕШОМ
 """
-def levenshtein_matrix_recursive(str1, str2, out_put = True):
+@lru_cache(maxsize=CACHE_SIZE)
+def levenshtein_matrix_recursive(str1, str2, profiler=DummyProfiler()):
+    profiler.trace()
     n = len(str1)
     m = len(str2)
 
     def recursive(str1, str2, n, m, matrix):
+        profiler.trace()
         if (matrix[n][m] != -1):
             # print("if (matrix[n][m] != -1):")
             return matrix[n][m]
@@ -127,6 +165,7 @@ def levenshtein_matrix_recursive(str1, str2, out_put = True):
 
         # print()
         # print_matrix(str1, str2, matrix)
+        profiler.trace()
 
         return matrix[n][m]
 
@@ -143,10 +182,11 @@ def levenshtein_matrix_recursive(str1, str2, out_put = True):
 
     recursive(str1, str2, n, m, matrix)
 
-    if out_put:
-        print("Расстояние, вычисленное с помощью матрицы Левенштейна (рекурсивно)")
-        print_matrix(str1, str2, matrix)
-        print("Расстояние равно ", matrix[n][m])
+    #if out_put:
+        #print("Расстояние, вычисленное с помощью матрицы Левенштейна (рекурсивно)")
+        #print_matrix(str1, str2, matrix)
+        #print("Расстояние равно ", matrix[n][m])
+    profiler.trace()
 
     return matrix[n][m]
 
@@ -155,41 +195,39 @@ def levenshtein_matrix_recursive(str1, str2, out_put = True):
 #     Функция для вычисления расстояния Дфмерау - Левенштейна,
 #     матрица.
 # """
-# def damerau_levenshtein_matrix(str1, str2, out_put = True):
-#     n = len(str1)
-#     m = len(str2)
-#
-#     matrix = create_matrix(n + 1, m + 1)
-#
-#     for i in range(1, n + 1):
-#         for j in range(1, m + 1):
-#             add, delete, change = matrix[i - 1][j] + 1, \
-#                                   matrix[i][j - 1] + 1, \
-#                                   matrix[i - 1][j - 1]
-#             if str2[j - 1] != str1[i - 1]:
-#                 change += 1
-#             else:
-#                 change += 0
-#
-#             matrix[i][j] = min(add, delete, change)
-#
-#             if i > 1 and j > 1 and str1[i - 1] == str2[j - 2] \
-#                     and str1[i - 2] == str2[j - 1]:
-#                 matrix[i][j] = min(matrix[i][j], matrix[i - 2][j - 2] + 1)
-#
-#     if out_put:
-#         print("Расстояние, вычисленное с помощью матрицы Дамерау-Левенштейна")
-#         print_matrix(str1, str2, matrix)
-#         print("Расстояние равно ", matrix[n][m])
-#
-#     return matrix[n][m]
+def damerau_levenshtein_matrix(str1, str2, profiler=DummyProfiler()):
+     profiler.trace()
+     n = len(str1)
+     m = len(str2)
 
+     matrix = create_matrix(n + 1, m + 1)
+     
+     for i in range(1, n + 1):
+         for j in range(1, m + 1):
+             add, delete, change = matrix[i - 1][j] + 1, \
+                                   matrix[i][j - 1] + 1, \
+                                   matrix[i - 1][j - 1]
+             if str2[j - 1] != str1[i - 1]:
+                 change += 1
+             else:
+                 change += 0
+
+             matrix[i][j] = min(add, delete, change)
+
+             if i > 1 and j > 1 and str1[i - 1] == str2[j - 2] \
+                     and str1[i - 2] == str2[j - 1]:
+                 matrix[i][j] = min(matrix[i][j], matrix[i - 2][j - 2] + 1)
+
+     profiler.trace
+     return matrix[n][m]
 
 """
     Функция для вычисления расстояния Дфмерау - Левенштейна,
     рекурсивно.
 """
-def damerau_levenshtein_recursive(str1, str2, out_put = False):
+@lru_cache(maxsize=CACHE_SIZE)
+def damerau_levenshtein_recursive(str1, str2, profiler=DummyProfiler()):
+    profiler.trace()
     n = len(str1)
     m = len(str2)
 
@@ -214,7 +252,75 @@ def damerau_levenshtein_recursive(str1, str2, out_put = False):
         min_ret = min(damerau_levenshtein_recursive(str1[:n - 1], str2) + 1,
                       damerau_levenshtein_recursive(str1, str2[:m - 1]) + 1,
                       damerau_levenshtein_recursive(str1[:n - 1], str2[:m - 1]) + change)
+    profiler.trace()
     return min_ret
+
+@lru_cache(maxsize=CACHE_SIZE)
+def damerau_levenshtein_cached(str1, str2, profiler=DummyProfiler()):
+    profiler.trace()
+    n = len(str1)
+    m = len(str2)
+
+    def recursive(str1, str2, n, m, matrix):
+        profiler.trace()
+        if (matrix[n][m] != -1):
+            # print("if (matrix[n][m] != -1):")
+            return matrix[n][m]
+
+        if (n == 0):
+            # print("if (n == 0):")
+            matrix[n][m] = m
+            return matrix[n][m]
+
+        if (n > 0 and m == 0):
+            # print("if (n > 0 and m == 0):")
+            matrix[n][m] = n
+            return matrix[n][m]
+
+        delete = recursive(str1, str2, n - 1, m, matrix) + 1
+        add = recursive(str1, str2, n, m - 1, matrix) + 1
+
+        flag = 0
+
+        if (str1[n - 1] != str2[m - 1]):
+            flag = 1
+
+        change = recursive(str1, str2, n - 1, m - 1, matrix) + flag
+
+        matrix[n][m] = min(add, delete, change)
+
+        if n > 1 and m > 1 and str1[n - 1] == str2[m - 2] \
+                     and str1[n - 2] == str2[m - 1]:
+                 matrix[n][m] = min(matrix[n][m], matrix[n - 2][m - 2] + 1)
+
+
+
+        # print()
+        # print_matrix(str1, str2, matrix)
+        profiler.trace()
+
+        return matrix[n][m]
+
+    matrix =  create_matrix(n + 1, m + 1)
+    # print("begin")
+    # print_matrix(str1, str2, matrix)
+
+    for i in range(n + 1):
+        for j in range(m + 1):
+            matrix[i][j] = -1
+
+    # print("begin2")
+    # print_matrix(str1, str2, matrix)
+
+    recursive(str1, str2, n, m, matrix)
+
+    #if out_put:
+        #print("Расстояние, вычисленное с помощью матрицы Левенштейна (рекурсивно)")
+        #print_matrix(str1, str2, matrix)
+        #print("Расстояние равно ", matrix[n][m])
+    profiler.trace()
+
+    return matrix[n][m]
 
 
 def words_algoritm(func):
@@ -231,15 +337,31 @@ def random_string(str_len):
     return ''.join(random.choice(letters) for i in range(str_len))
 
 def time_analysis(func, count = 100, str_len = 8):
-    # clk_id = pthread_getcpuclockid(threading.get_ident())
-    start = time()
+    duration = 0
     for i in range(count):
         str1 = random_string(str_len)
         str2 = random_string(str_len)
+        start = process_time()
         func(str1, str2, False)
-    end = time()
-    return (end - start) / count
+        end = process_time()
+        duration += end - start
+    return duration / count
 
+
+def memory_analysis(func, count=1, str_len=8):
+    summa = 0
+    for i in range(count):
+
+        profiler = MemoryTracker()
+        profiler.start()
+        str1 = random_string(str_len)
+        str2 = random_string(str_len)
+        func(str1, str2, profiler)
+        statistics = profiler.end()
+
+        summa += statistics['mean_relative']
+
+    return summa / count
 
 def main():
     do_start = True

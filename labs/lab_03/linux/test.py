@@ -1,99 +1,165 @@
-import main
-import string
+import sys
+from time import process_time
 import random
-import time
-
+import numpy as np  # np.array([random.randint(0, 1000) for i in range(100)])
+import copy
 import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use("TkAgg")
 
-N = 100
-y_time_lev_rec = []
-y_time_lev_matrix_rec = []
-y_time_lev_matrix = []
-y_time_dlev = []
-
-len_arr = []
+from main import *
 
 
-def test(len):
-    time_lev_rec = 0
-    time_lev_matrix_rec = 0
-    time_lev_matrix = 0
-    time_dlev = 0
+def get_random_array(n):
+    array = []
 
-    for i in range(N):
-        s1 = ''.join(random.choices(string.ascii_lowercase + string.ascii_uppercase, k=len))
-        s2 = ''.join(random.choices(string.ascii_lowercase + string.ascii_uppercase, k=len))
+    for i in range(n):
+        array.append(random.randint(0, 20000))
 
-        start = time.process_time()
-        main.levenshtein_matrix(s1, s2, False)
-        stop = time.process_time()
-
-        time_lev_matrix += stop - start
-
-        start = time.process_time()
-        main.levenshtein_matrix_recursive(s1, s2, False)
-        stop = time.process_time()
-
-        time_lev_matrix_rec += stop - start
-
-        start = time.process_time()
-        main.levenshtein_recursive(s1, s2, False)
-        stop = time.process_time()
-
-        time_lev_rec += stop - start
-
-        start = time.process_time()
-        main.damerau_levenshtein_recursive(s1, s2, False)
-        stop = time.process_time()
-
-        time_dlev += stop - start
-
-    len_arr.append(len)
-    y_time_lev_rec.append((time_lev_rec / N) * 1000000)
-    y_time_lev_matrix_rec.append((time_lev_matrix_rec / N) * 1000000)
-    y_time_lev_matrix.append((time_lev_matrix / N) * 1000000)
-    y_time_dlev.append((time_dlev / N) * 1000000)
-
-    return (time_lev_matrix / N) * 1000000, (time_lev_matrix_rec / N) * 1000000, (time_lev_rec / N) * 1000000, (time_dlev / N) * 1000000
+    return array
 
 
-def print_results(count):
-    time_lev_matrix, time_lev_matrix_rec, time_lev_rec, time_dlev = test(count)
-    print("\n--------------------------------------------------------------------------------------")
-    print("Время работы функции при n = : ", count)
-    print("Матричный способ нахождения расстояния Левенштейна: ", "{0:.6f}".format(time_lev_matrix), "мкс")
-    print("Матричный способ нахождения расстояния Левенштейна с использованием рекурсии: ", "{0:.6f}".format(time_lev_matrix_rec), "мкс")
-    print("Нахождение расстояния Левенштейна с использованием рекурсии: ", "{0:.6f}".format(time_lev_rec), "мкс")
-    print("Нахождение расстояния Дамерау-Левенштейна c использования рекурсии: ", "{0:.6f}".format(time_dlev), "мкс")
+def get_best_array(n):
+    array = []
 
-    return
+    for i in range(n):
+        array.append(i)
 
-if __name__ == "__main__":
-    for i in range(10):
-       print_results(i)
-
-    fig = plt.figure(figsize = (10, 7))
-    plot = fig.add_subplot()
-    plot.plot(len_arr, y_time_lev_rec, label = "Р-Левенштейна(рек)")
-    # plot.plot(len_arr, y_time_lev_matrix_rec, label = "Р-Левенштейна(рек+кеш)")
-    # plot.plot(len_arr, y_time_lev_matrix, label = "Р-Левенштейна(мат)")
-    plot.plot(len_arr, y_time_dlev, label = "Р-Дамерау-Левенштейна")
-    plt.legend()
-    plt.grid()
-    plt.title("Временные характеристики алгоритмов вычисления расстояния")
-    plt.ylabel("Затраченное время (мск)")
-    plt.xlabel("Длина (симболы")
+    return array
 
 
-    fig1 = plt.figure(figsize = (10, 7))
-    plot = fig1.add_subplot()
-    # plot.plot(len_arr, y_time_lev_rec, label = "Р-Левенштейна(рек)")
-    plot.plot(len_arr, y_time_lev_matrix_rec, label = "Р-Левенштейна(рек+кеш)")
-    plot.plot(len_arr, y_time_lev_matrix, label = "Р-Левенштейна(мат)")
-    # plot.plot(len_arr, y_time_dlev, label = "Р-Дамерау-Левенштейна")
-    plt.legend()
-    plt.grid()
-    plt.title("Временные характеристики алгоритмов вычисления расстояния")
-    plt.ylabel("Затраченное время (мск)")
-    plt.xlabel("Длина (симболы")
-    plt.show()
+def get_worst_array(n):
+    array = []
+
+    for i in range(n):
+        array.append(n - i)
+
+    return array
+
+
+def get_calc_time(func, arr):
+    t2 = process_time()
+    func(arr)
+    t1 = process_time() - t2
+
+    return t1
+
+
+def measure_time(get_array, n1, n2, st, it):
+    t_bubble = []
+    t_insert = []
+    t_select = []
+
+    for n in range(n1, n2, st):
+        # print(n, ' ', time.process_time())
+        t = 0
+
+        for i in range(it):
+            arr = get_array(n)
+            t += get_calc_time(shaker_sort, arr)
+
+        t_bubble.append(t / it * 1000000)
+        t = 0
+
+        for i in range(it):
+            arr = get_array(n)
+            t += get_calc_time(insertion_sort, arr)
+
+        t_insert.append(t / it * 1000000)
+        t = 0
+
+        for i in range(it):
+            arr = get_array(n)
+            t += get_calc_time(selection_sort, arr)
+
+        t_select.append(t / it * 1000000)
+
+    return (t_bubble, t_insert, t_select)
+
+
+
+def time_all():
+    nu = [100, 200, 300, 400, 500, 600] #, 1000, 2000, 2500]
+    t_bubble = []
+    t_insert = []
+    t_select = []
+    it = 100
+
+    for n in nu:
+        print(n)
+        t = 0
+
+        for i in range(it):
+            arr = get_worst_array(n)
+            t += get_calc_time(shaker_sort, arr)
+
+        t_bubble.append(t / it * 1000000)
+        t = 0
+
+        for i in range(it):
+            arr = get_worst_array(n)
+            t += get_calc_time(insertion_sort, arr)
+
+        t_insert.append(t / it * 1000000)
+        t = 0
+
+        for i in range(it):
+            arr = get_worst_array(n)
+            t += get_calc_time(selection_sort, arr)
+
+        t_select.append(t / it * 1000000)
+
+    print(nu)
+    print(t_bubble)
+    print(t_insert)
+    print(t_select)
+
+
+# time_all()
+
+n1 = 100
+n2 = 1000
+h = 200
+len_arr = [100, 300, 500, 700, 900]
+result1 = measure_time(get_best_array, n1, n2 + 1, h, 100)
+result2 = measure_time(get_worst_array, n1, n2 + 1, h, 100)
+result3 = measure_time(get_random_array, n1, n2 + 1, h, 100)
+
+
+fig1 = plt.figure(figsize=(10, 7))
+plot = fig1.add_subplot()
+plot.plot(len_arr, result1[0], label = "Сортировка Шейкер")
+plot.plot(len_arr, result1[1], label="Сортировка вставками")
+plot.plot(len_arr, result1[2], label="Сортировка выбором")
+plt.legend()
+plt.grid()
+plt.title("Временные характеристики алгоритмов сортировок")
+plt.ylabel("Затраченное время (мск)")
+plt.xlabel("Длина")
+print("res1 отсортированные данные", result1)
+
+fig2 = plt.figure(figsize=(10, 7))
+plot = fig2.add_subplot()
+plot.plot(len_arr, result2[0], label = "Сортировка Шейкер")
+plot.plot(len_arr, result2[1], label="Сортировка вставками")
+plot.plot(len_arr, result2[2], label="Сортировка выбором")
+plt.legend()
+plt.grid()
+plt.title("Временные характеристики алгоритмов сортировок")
+plt.ylabel("Затраченное время (мск)")
+plt.xlabel("Длина")
+print("res2 обратные порядок", result2)
+
+fig3 = plt.figure(figsize=(10, 7))
+plot = fig3.add_subplot()
+plot.plot(len_arr, result3[0], label = "Сортировка Шейкер")
+plot.plot(len_arr, result3[2], label="Сортировка вставками")
+plot.plot(len_arr, result3[1], label="Сортировка выбором")
+plt.legend()
+plt.grid()
+plt.title("Временные характеристики алгоритмов сортировок")
+plt.ylabel("Затраченное время (мск)")
+plt.xlabel("Длина")
+print("res3 слйчайный порядок", result3)
+
+plt.show()
