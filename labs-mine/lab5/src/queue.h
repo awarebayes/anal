@@ -33,7 +33,7 @@ public:
         {
             auto item = queue.front();
             queue.pop();
-            return item;
+            return std::move(item);
         }
         return std::nullopt;
     }

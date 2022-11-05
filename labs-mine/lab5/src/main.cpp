@@ -154,17 +154,18 @@ struct PiplinedPipeline
 int main() {
     std::vector<Task> tasks;
 
-    for (int i = 0; i < 1000000; i++)
+    for (int i = 0; i < 10000; i++)
     {
+        const int facn = 10000;
         auto t1 = Task{"Go to work"}
-                .add_stage("Wake up", []() {factorial(100); })
-                .add_stage("Get out of bed", []() { factorial(100); })
-                .add_stage("Brush teeth", []() { factorial(100); })
-                .add_stage("Eat", []() { factorial(100); })
-                .add_stage("Get out of the house", []() { factorial(100); })
-                .add_stage("Drive to work", []() { factorial(100); })
-                .add_stage("Greet everyone", []() { factorial(100); })
-                .add_stage("Sit at desk", []() { factorial(100); })
+                .add_stage("Wake up", []() { factorial(facn); })
+                .add_stage("Get out of bed", []() { factorial(facn); })
+                .add_stage("Brush teeth", []() { factorial(facn); })
+                .add_stage("Eat", []() { factorial(facn); })
+                .add_stage("Get out of the house", []() { factorial(facn); })
+                .add_stage("Drive to work", []() { factorial(facn); })
+                .add_stage("Greet everyone", []() { factorial(facn); })
+                .add_stage("Sit at desk", []() { factorial(facn); })
                 .complete_building();
         tasks.push_back(t1);
     }
