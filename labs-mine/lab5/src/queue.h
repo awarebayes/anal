@@ -29,19 +29,13 @@ public:
     std::optional<T> pop()
     {
         std::unique_lock<std::mutex> lock(mutex);
-        if (cv.wait_for(lock, 100ms, [this](){ return !queue.empty(); }))
+        if (cv.wait_for(lock, 10000ms, [this](){ return !queue.empty(); }))
         {
             auto item = queue.front();
             queue.pop();
             return std::move(item);
         }
         return std::nullopt;
-    }
-
-    bool empty()
-    {
-        std::unique_lock<std::mutex> lock(mutex);
-        return queue.empty();
     }
 };
 

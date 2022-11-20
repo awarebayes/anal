@@ -1,0 +1,97 @@
+\chapter{Технологическая часть}
+
+\section{Выбор языка программирования}
+
+При выполнении домашнего задания использовался язык программирования - С++ \cite{csharplang}.
+
+
+\section{Исходные код программы}
+В листинге \ref{lst:sort} представлена реализация (наивного) алгоритма префиксного суммирования.
+
+
+\begin{lstlisting}[label=lst:sort,caption=Алгоритм parallel\_scan]
+
+__global__ void prescan(
+	float *g_odata,                            // -4
+	float *g_idata,                            // -3
+	int n 		                               // -2
+	)
+{
+	 extern __shared__ float temp[];           // -1  allocated on invocation
+	 // for threadIdx.x = 0 ... n-1 parallel do// 0
+	 int thid = threadIdx.x;                   // 1
+	 int offset = 1;                           // 2
+	 temp[2*thid] = g_idata[2*thid];           // 3 load input into shared memory
+	 temp[2*thid+1] = g_idata[2*thid+1];       // 4
+	 for (int d = n>>1; d > 0; d >>= 1)        // 5 build sum in place up the tree
+	 {
+		__syncthreads();                       // 6
+		if (thid < d)                          // 7
+		{
+			int ai = offset*(2*thid+1)-1;      // 8
+			int bi = offset*(2*thid+2)-1;      // 9
+			temp[bi] += temp[ai];              // 10
+		}
+		offset *= 2;                           // 11
+	 }
+
+	 if (thid == 0) { temp[n - 1] = 0; }       // 12 // clear the last element
+
+	 for (int d = 1; d < n; d *= 2)           // 13 // traverse down tree & build scan
+	 {
+		offset >>= 1;                         // 14
+		__syncthreads();                      // 15
+		if (thid < d)                         // 16
+		{
+			int ai = offset*(2*thid+1)-1;     // 17
+			int bi = offset*(2*thid+2)-1;     // 18
+			float t = temp[ai];               // 19
+			temp[ai] = temp[bi];              // 20
+			temp[bi] += t;                    // 21
+		}
+	 }
+	 __syncthreads();                         // 22
+	 // write results to device memory
+	 g_odata[2*thid] = temp[2*thid];          // 23
+	 g_odata[2*thid+1] = temp[2*thid+1];	  // 24
+	 // end parallel for
+}
+
+\end{lstlisting}
+
+\section{Модели программ}
+
+\subsection{Граф управления программы}
+
+На рисунке \ref{img:og} представлен граф управления программы.
+
+\img{80mm}{og}{Граф управления программы}
+
+\clearpage
+
+
+\subsection{Информационный граф программы}
+
+На рисунке \ref{img:ig} представлен граф управления программы.
+
+\img{100mm}{ig}{Информационный граф программы}
+
+\clearpage
+
+\subsection{Операционная история программы}
+
+На рисунке \ref{img:oi} представлен граф управления программы.
+
+\img{100mm}{oi}{Операционная история программы}
+
+\clearpage
+
+\subsection{Инофрмационная история программы}
+
+На рисунке \ref{img:ii} представлен граф управления программы.
+
+\img{200mm}{ii}{Информационная история программы}
+
+\clearpage
+
+

@@ -4,22 +4,42 @@
 #include <thread>
 #include "queue.h"
 
-int factorial(int n)
+
+// guess number by hash.
+// number is in range [0, n)
+int find_key_by_hash(size_t target_hash, int max_n)
 {
-    int res = 1;
-    for (int i = 1; i <= n; ++i)
+    while (true)
     {
-        res *= i;
+        int number = rand() % max_n;
+        size_t hash = std::hash<int>{}(number);
+        if (hash == target_hash)
+        {
+            return number;
+        }
     }
-    return res;
+}
+
+int work(int n)
+{
+    auto guess = rand() % n;
+    size_t target_hash = std::hash<int>{}(guess);
+    return find_key_by_hash(target_hash, n);
 }
 
 struct Stage
 {
     std::string_view stage_name;
-    std::function<void()> work;
+    std::function<void()> work_;
     int stage_number{};
     std::shared_ptr<Stage> next_stage{};
+
+    void work()
+    {
+        // std::cout << "Stage: " << stage_number << " " << stage_name << " started" << std::endl;
+        work_();
+        // std::cout << "Stage: " << stage_number << " " << stage_name << " ended" << std::endl;
+    }
 };
 
 struct StageWithCallback
@@ -32,8 +52,8 @@ struct Task
 {
     std::string_view task_name;
     std::vector<std::shared_ptr<Stage>> stages;
-    std::chrono::time_point<std::chrono::system_clock> start_time{};
-    std::chrono::time_point<std::chrono::system_clock> end_time{};
+    std::chrono::time_point<std::chrono::steady_clock> start_time{};
+    std::chrono::time_point<std::chrono::steady_clock> end_time{};
 
     Task &add_stage(std::string_view stage_name, std::function<void()> work)
     {
@@ -47,17 +67,18 @@ struct Task
 
     Task &complete_building()
     {
-        auto stages_0_original_work = stages[0]->work;
-        stages[0]->work = [this, stages_0_original_work](){
-            this->start_time = std::chrono::system_clock::now();
+        auto stages_0_original_work = stages[0]->work_;
+        stages[0]->work_ = [this, stages_0_original_work](){
+            this->start_time = std::chrono::steady_clock::now();
+            // std::cout << "Task " << task_name << "started!" << std::endl;
             stages_0_original_work();
         };
 
-        auto last_stages_original_work = stages[stages.size() - 1]->work;
-        stages[stages.size() - 1]->work = [this, last_stages_original_work](){
+        auto last_stages_original_work = stages[stages.size() - 1]->work_;
+        stages[stages.size() - 1]->work_ = [this, last_stages_original_work](){
             last_stages_original_work();
-            this->end_time = std::chrono::system_clock::now();
-            //std::cout << "Task " << task_name << " completed in " << std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count() << " ms" << std::endl;
+            this->end_time = std::chrono::steady_clock::now();
+            // std::cout << "Task " << task_name << " completed in " << std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count() << " ms" << std::endl;
         };
         return *this;
     }
@@ -124,9 +145,8 @@ struct PiplinedPipeline
 
         std::vector<std::thread> thread_pool;
         int n_tasks = tasks.size();
-        for (int i = 0; i < queues.size(); ++i)
+        for (auto &queue : queues)
         {
-            auto& queue = queues[i];
             thread_pool.emplace_back([&queue, n_tasks]() {
                 int tasks_completed = 0;
                 while (tasks_completed < n_tasks)
@@ -134,9 +154,10 @@ struct PiplinedPipeline
                     auto maybe_stage = queue->pop();
                     if (maybe_stage)
                     {
-                        auto& stage = maybe_stage.value();
-                        stage.stage->work();
-                        stage.on_complete(*stage.stage);
+                        tasks_completed += 1;
+                        auto& stage_with_cb = maybe_stage.value();
+                        stage_with_cb.stage->work();
+                        stage_with_cb.on_complete(*stage_with_cb.stage);
                     }
                     else
                         break;
@@ -150,30 +171,52 @@ struct PiplinedPipeline
     }
 };
 
+template<typename PipelineT>
+void run_pipeline(const std::vector<Task> &tasks)
+{
+    PipelineT().run(tasks);
+}
 
 int main() {
-    std::vector<Task> tasks;
 
-    for (int i = 0; i < 10000; i++)
+    std::vector<size_t> sizes = {100, 200, 300, 500, 1000, 5000, 10'000, 20'000};
+    std::vector<std::string> pipeline_type = {"Sequential", "Parallel"};
+
+    std::cout << "Size,Sequential,Parallel" << std::endl;
+
+    for (const auto &size: sizes)
     {
-        const int facn = 10000;
-        auto t1 = Task{"Go to work"}
-                .add_stage("Wake up", []() { factorial(facn); })
-                .add_stage("Get out of bed", []() { factorial(facn); })
-                .add_stage("Brush teeth", []() { factorial(facn); })
-                .add_stage("Eat", []() { factorial(facn); })
-                .add_stage("Get out of the house", []() { factorial(facn); })
-                .add_stage("Drive to work", []() { factorial(facn); })
-                .add_stage("Greet everyone", []() { factorial(facn); })
-                .add_stage("Sit at desk", []() { factorial(facn); })
-                .complete_building();
-        tasks.push_back(t1);
+        std::vector<Task> tasks;
+        for (int i = 0; i < size; i++)
+        {
+            const int job_difficulty = 50;
+            auto t1 = Task{"Go to work"}
+                    .add_stage("Wake up", [=]() { work(job_difficulty); })
+                    .add_stage("Get out of bed", [=]() { work(job_difficulty); })
+                    .add_stage("Brush teeth", [=]() { work(job_difficulty); })
+                    .add_stage("Eat", [=]() { work(job_difficulty); })
+                    .add_stage("Get out of the house", [=]() { work(job_difficulty); })
+                    .add_stage("Drive to work", [=]() { work(job_difficulty); })
+                    .add_stage("Greet everyone", [=]() { work(job_difficulty); })
+                    .add_stage("Sit at desk", [=]() { work(job_difficulty); })
+                    .complete_building();
+            tasks.push_back(t1);
+        }
+
+        std::cout << tasks.size();
+        for (const auto &pipe_t: pipeline_type)
+        {
+            auto time_started = std::chrono::steady_clock::now();
+            if (pipe_t == "Sequential")
+                run_pipeline<SequentialPipeline>(tasks);
+            else
+                run_pipeline<PiplinedPipeline>(tasks);
+            auto time_finished = std::chrono::steady_clock::now();
+
+            std::cout << "," << std::chrono::duration_cast<std::chrono::milliseconds>(time_finished - time_started).count();
+        }
+        std::cout << std::endl;
     }
 
-    auto time_started = std::chrono::system_clock::now();
-    PiplinedPipeline pipeline;
-    pipeline.run(tasks);
-    auto time_finished = std::chrono::system_clock::now();
-    std::cout << "Pipeline completed in " << std::chrono::duration_cast<std::chrono::milliseconds>(time_finished - time_started).count() << " ms" << std::endl;
     return 0;
 }

@@ -1,0 +1,150 @@
+\chapter{Технологическая часть}
+
+В данном разделе будут приведены требования к программному обеспечению, средства реализации и листинги кода.
+
+\section{Требования к ПО}
+
+К программе предъявляется ряд требований:
+\begin{itemize}
+	\item операции, которые могут выполняться на видеокарте, должны выполняться на видеокарте;
+	\item отрисовка должна быть отзывчивой;
+	\item должна быть возможность взаимодействия с пользователем;
+\end{itemize}
+
+\section{Средства реализации}
+
+В качестве основного языка программирования для реализации данной лабораторной работы были выбран языки программирования C++ \cite{cpplang} и Nvidia Cuda \cite{cuda_lang}.  
+
+Язык Сuda позволяет писать kernel для выполнения на видеокарте.
+
+Язык C++ совместим с Cuda, а также компилируемый и имеет ручное управление памятью.
+
+
+\section{Реализация алгоритмов}
+В листингах \ref{lst:z_filler}, \ref{lst:z_merge} представлены реализации алгоритма заполнения z-буфера, реализации алгоритма параллельной редукции z-буферов.
+
+Реализации алгоритма растеризации, а также алгоритма анализа отрисовываемых граней похожи на алгоритм z-буфера, не несут методологической ценности и могут быть опущены.
+
+\begin{lstlisting}[label=lst:z_filler,caption=Реализация алгоритма заполнения z-buffer, language=C++]
+__device__ void triangle_zbuffer(glm::vec3 pts[3], ZBuffer &zbuffer) {
+    glm::vec2 bboxmin{float(zbuffer.width-1),  float(zbuffer.height-1)};
+    glm::vec2 bboxmax{0., 0.};
+    glm::vec2 clamp{float(zbuffer.width-1), float(zbuffer.height-1)};
+    for (int i=0; i<3; i++) {
+      bboxmin.x = max(0.0f, min(bboxmin.x, pts[i].x));
+      bboxmin.y = max(0.0f, min(bboxmin.y, pts[i].y));
+  
+      bboxmax.x = min(clamp.x, max(bboxmax.x, pts[i].x));
+      bboxmax.y = min(clamp.y, max(bboxmax.y, pts[i].y));
+    }
+  
+  
+    glm::vec3 P{0, 0, 0};
+    int cnt = 0;
+    for (P.x=floor(bboxmin.x); P.x<=bboxmax.x; P.x++) {
+      for (P.y=floor(bboxmin.y); P.y<=bboxmax.y; P.y++) {
+        P.z = 0;
+        auto bc_screen  = barycentric(pts[0], pts[1], pts[2], P);
+  
+        auto bc_clip = glm::vec3(bc_screen[0]/pts[0].z, bc_screen[1]/pts[1].z, bc_screen[2]/pts[2].z);
+        bc_clip = bc_clip / (bc_clip.x + bc_clip.y + bc_clip.z);
+  
+        if (bc_screen.x < 0 || bc_screen.y < 0 || bc_screen.z < 0)
+          continue;
+        for (int i = 0; i < 3; i++)
+          P.z += pts[i].z * bc_clip[i];
+        atomicMax(&zbuffer.zbuffer[int(P.x + P.y * zbuffer.width)], P.z);
+        cnt++;
+        if (cnt > MAX_PIXELS_PER_KERNEL)
+          return;
+      }
+    }
+}
+  
+template<typename ShaderType>
+__global__ void fill_zbuffer(
+  DrawCallBaseArgs args,
+  ModelDrawCallArgs model_args,
+  ZBuffer buffer
+) {
+    int position = blockIdx.x * blockDim.x + threadIdx.x;
+  
+    auto &model = model_args.model;
+    if (position >= model.n_faces)
+      return;
+  
+    if (model_args.disabled_faces != nullptr && model_args.disabled_faces[position])
+      return;
+  
+    auto light_dir = args.light_dir;
+    auto sh = BaseShader<ShaderType>(model, light_dir, args.projection, args.view, model_args.model_matrix, args.screen_size, args);
+  
+    for (int i = 0; i < 3; i++)
+      sh.vertex(position, i, false);
+  
+  
+    glm::vec3 look_dir = args.look_at - args.camera_pos;
+    glm::vec3 n = cross(sh.pts[2] - sh.pts[0], sh.pts[1] - sh.pts[0]);
+    if (glm::dot(look_dir, {0, 0, 1}) > 0)
+      n = -n;
+    if (dot(n, look_dir) > 0) {
+      triangle_zbuffer(sh.pts, buffer);
+    }
+}
+\end{lstlisting}
+
+\begin{lstlisting}[label=lst:z_merge,caption= Алгоритм параллельного редуцирования z-буферов, language=C++]
+void parallel_reduce_merge_helper(
+  std::vector<std::shared_ptr<ZMerger>> &mergers,
+  std::vector<ZBuffer> &zbuffers,
+  int active, int step, int stride
+) {
+    if (active <= 1) return;
+  
+    for (int i = 0; i < active; i += step) {
+      if (i + stride < active) {
+        mergers[i]->async_merge(zbuffers[i], zbuffers[i + stride]);
+      }
+    }
+  
+    for (int i = 0; i < active; i += step) {
+      if (i + stride < active) {
+        mergers[i]->await();
+      }
+    }
+    if (step < active)
+      parallel_reduce_merge_helper(mergers, zbuffers, active, step * 2, stride * 2);
+  }
+  
+  void parallel_reduce_merge(std::vector<std::shared_ptr<ZMerger>> &mergers, std::vector<ZBuffer> &zbuffers, int active)
+  {
+    if (active == 1)
+      return;
+    parallel_reduce_merge_helper(mergers, zbuffers, active, 2, 1);
+  }
+\end{lstlisting}
+
+\section{Тестирование}
+
+Было проведено ручное тестирование, успешно отработаны следующие тесты:
+\begin{itemize}
+  \item отрисовка каркасной модели;
+  \item отрисовка модели без использования z-буфера;
+  \item отрисовка модели без освещения;
+  \item отрисовка модели с освещением Фонга;
+  \item отрисовка модели с освещением и текстурой;
+  \item отрисовка нескольких объектов друг за другом одной модели;
+  \item отрисовка нескольких разных моделей;
+  \item перемещение камеры по сцене;
+  \item загрузка нескольких сцен последовательно;
+  \item отключение виртуальной геометрии, куллинга;
+  \item передвижение модели по сцене;
+  \item отрисовка модели с шейдером воды.
+\end{itemize}
+
+
+\section*{Вывод}
+
+Был приведен код алгоритмов растеризации и анализа на языках Cuda и C++.
+Выделены и успешно протестированы различные сценарии использования программы.
+
